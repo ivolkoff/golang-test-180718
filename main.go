@@ -5,7 +5,11 @@ import (
 	"os"
 	"bufio"
 	"sync"
-	"strings"
+	"net/http"
+	"io/ioutil"
+	"log"
+	"io"
+	"bytes"
 )
 
 func main() {
@@ -23,9 +27,12 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 	for true {
 		//Читаем построчно
-		text, _ := reader.ReadString('\n')
-		if len(text) == 0 {
-			break
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Panicf("Error ReadString: %s", err)
 		}
 		text = text[0 : len(text)-1]
 		wg.Add(1)
@@ -39,13 +46,32 @@ func main() {
 }
 
 func worker(jobs <-chan string, wg *sync.WaitGroup, mutex *sync.Mutex, sum *uint64) {
-	for str := range jobs {
+	for url := range jobs {
 		//Находим вхождение строки
-		i := strings.Index(str, "go")
-		fmt.Printf("Count for %s: %d\n", str, i)
+		s, err := getCount(url)
+		if err != nil {
+			log.Panicf("Error url getCount: %s", err)
+		}
+		fmt.Printf("Count for %s: %d\n", url, s)
 		mutex.Lock()
-		*sum += uint64(i)
+		*sum += uint64(s)
 		mutex.Unlock()
 		wg.Done()
 	}
+}
+
+func getCount(url string) (i int, err error) {
+	response, err := http.Get(url)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	buf, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	i = bytes.Count(buf, []byte("Go"))
+
+	return i, nil
 }
